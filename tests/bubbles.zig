@@ -4,7 +4,7 @@ c: (u8),
 d: (i16),
 e: (p: {
     var joe: type = u69;
-    var mama: type = u420;
+    var mama = u420;
     mama = u3;
     if (1 == 0) {
         break :p joe;

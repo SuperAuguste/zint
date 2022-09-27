@@ -261,8 +261,13 @@ pub fn interpret(
         .aligned_var_decl,
         .simple_var_decl,
         => {
-            var value = (try unit.interpret(utils.varDecl(tree, node_idx).?.ast.init_node, parent_scope_idx, observe_values)).getValue();
-            var @"type" = (try unit.interpret(utils.varDecl(tree, node_idx).?.ast.type_node, parent_scope_idx, observe_values)).getValue();
+            const decl = utils.varDecl(tree, node_idx).?;
+            var value = (try unit.interpret(decl.ast.init_node, parent_scope_idx, observe_values)).getValue();
+            var @"type" = if (decl.ast.type_node == 0) tv.Value{
+                .node_idx = std.math.maxInt(Ast.Node.Index),
+                .@"type" = try unit.createType(node_idx, .{ .@"type" = .{} }),
+                .value_data = .{ .@"type" = value.@"type" },
+            } else (try unit.interpret(decl.ast.type_node, parent_scope_idx, observe_values)).getValue();
 
             try unit.declarations.append(unit.allocator, .{
                 .node_idx = node_idx,
@@ -408,6 +413,35 @@ pub fn interpret(
                     .failure => @panic("Failed to parse number literal"),
                 },
             } };
+        },
+        .assign,
+        .assign_bit_and,
+        .assign_bit_or,
+        .assign_shl,
+        .assign_shr,
+        .assign_bit_xor,
+        .assign_div,
+        .assign_sub,
+        .assign_sub_wrap,
+        .assign_mod,
+        .assign_add,
+        .assign_add_wrap,
+        .assign_mul,
+        .assign_mul_wrap,
+        => {
+            // TODO: Make this work with non identifiers
+            // TODO: Actually consider operators
+
+            const value = tree.getNodeSource(data[node_idx].lhs);
+
+            var psi = unit.parentScopeIterator(parent_scope_idx.?);
+            while (psi.next()) |i| {
+                if (unit.declaration_map.get(.{ .scope_idx = i, .name = value })) |decl_idx| {
+                    unit.declarations.items[decl_idx].value = (try unit.interpret(data[node_idx].rhs, i, observe_values)).getValue();
+                }
+            }
+
+            return InterpretResult{ .nothing = .{} };
         },
         else => {
             std.log.err("Unhandled {any}", .{tags[node_idx]});
