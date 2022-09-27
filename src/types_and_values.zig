@@ -6,6 +6,7 @@ pub const TypeInfo = union(enum) {
     pub const Signedness = enum { signed, unsigned };
 
     @"type",
+    @"bool",
     @"struct": struct {
         fields: std.ArrayListUnmanaged(Field),
         declarations: std.ArrayListUnmanaged(Declaration),
@@ -29,16 +30,36 @@ pub const Value = struct {
     node_idx: Ast.Node.Index,
     @"type": Type,
     value_data: ValueData,
+
+    pub fn eql(value: Value, other_value: Value) bool {
+        return value.value_data.eql(other_value.value_data);
+    }
 };
 
 pub const ValueData = union(enum) {
     // TODO: Support larger ints, floats; bigints?
 
     @"type": Type,
+    @"bool": bool,
 
+    @"comptime_int": std.math.big.int.Managed,
     unsigned_int: u64,
     signed_int: i64,
     float: f64,
+
+    pub fn eql(data: ValueData, other_data: ValueData) bool {
+        if (std.meta.activeTag(data) != std.meta.activeTag(other_data)) return false;
+        // std.enums.
+        // std.meta.activeTag(u: anytype)
+        switch (data) {
+            .@"bool" => return data.@"bool" == other_data.@"bool",
+            .@"comptime_int" => return data.@"comptime_int".eq(other_data.@"comptime_int"),
+            .unsigned_int => return data.unsigned_int == other_data.unsigned_int,
+            .signed_int => return data.signed_int == other_data.signed_int,
+            .float => return data.float == other_data.float,
+            else => @panic("Simple eql not implemented!"),
+        }
+    }
 };
 
 pub const Field = struct {

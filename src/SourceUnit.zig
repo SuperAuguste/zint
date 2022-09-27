@@ -17,6 +17,23 @@ type_info: std.ArrayListUnmanaged(tv.TypeInfo) = .{},
 scopes: std.ArrayListUnmanaged(Scope) = .{},
 fields: std.ArrayListUnmanaged(tv.Field) = .{},
 declarations: std.ArrayListUnmanaged(tv.Declaration) = .{},
+
+declaration_map: std.HashMapUnmanaged(DeclarationLookup, usize, DeclarationMapContext, std.hash_map.default_max_load_percentage) = .{},
+
+pub const DeclarationLookup = struct { scope_idx: usize, name: []const u8 };
+pub const DeclarationMapContext = struct {
+    pub fn hash(self: @This(), s: DeclarationLookup) u64 {
+        _ = self;
+        // TODO: Make this not terribly extremely dangerous
+        var scope_idx_buf = std.mem.toBytes(s.scope_idx);
+        return std.hash.Wyhash.hash(0, s.name) ^ std.hash.Wyhash.hash(0, &scope_idx_buf);
+    }
+    pub fn eql(self: @This(), a: DeclarationLookup, b: DeclarationLookup) bool {
+        _ = self;
+        return a.scope_idx == b.scope_idx and std.mem.eql(u8, a.name, b.name);
+    }
+};
+
 // memoized_resolved: std.AutoHashMap(Ast.Node.Index, Value) = .{},
 
 // TODO: Add more scopes
@@ -159,10 +176,11 @@ pub const InterpretResult = union(enum) {
     }
 
     pub fn getValue(result: InterpretResult) tv.Value {
-        return result.maybeGetValue() orelse @panic("Attempted to get value from non-valie interpret result");
+        return result.maybeGetValue() orelse @panic("Attempted to get value from non-value interpret result");
     }
 };
 
+pub const InterpretError = std.mem.Allocator.Error || std.fmt.ParseIntError || std.fmt.ParseFloatError || error{ InvalidCharacter, InvalidBase };
 pub fn interpret(
     unit: *SourceUnit,
     node_idx: Ast.Node.Index,
@@ -170,7 +188,7 @@ pub fn interpret(
     /// Whether or not this interpretation cares about values;
     /// this is always true in type determination / comptime
     observe_values: bool,
-) std.mem.Allocator.Error!InterpretResult {
+) InterpretError!InterpretResult {
     // _ = unit;
     // _ = node;
     // _ = observe_values;
@@ -248,10 +266,11 @@ pub fn interpret(
 
             try unit.declarations.append(unit.allocator, .{
                 .node_idx = node_idx,
-                .scope_idx = parent_scope_idx orelse std.math.maxInt(usize),
+                .scope_idx = parent_scope_idx.?, // orelse std.math.maxInt(usize),
                 .@"value" = value,
                 .@"type" = @"type".value_data.@"type",
             });
+            try unit.declaration_map.put(unit.allocator, .{ .scope_idx = parent_scope_idx.?, .name = utils.getDeclName(tree, node_idx).? }, unit.declarations.items.len - 1);
 
             return InterpretResult{ .nothing = .{} };
         },
@@ -325,25 +344,70 @@ pub fn interpret(
                 } };
             }
 
-            @panic("Unhandled identifier type");
+            // Logic to find identifiers in accessible scopes
+
+            var psi = unit.parentScopeIterator(parent_scope_idx.?);
+            while (psi.next()) |i| {
+                if (unit.declaration_map.get(.{ .scope_idx = i, .name = value })) |decl_idx| {
+                    return InterpretResult{ .value = unit.declarations.items[decl_idx].value };
+                }
+            }
+
+            std.log.err("Identifier not found: {s}", .{value});
+            @panic("Could not find identifier");
         },
         .grouped_expression => {
             return try unit.interpret(data[node_idx].lhs, parent_scope_idx, observe_values);
         },
         .@"break" => {
-            // var psi = unit.parentScopeIterator(parent_scope_idx.?);
-            // while (psi.next()) |i| {
-            //     var scope = unit.scopes.items[i];
-            //     if (scope.getLabel(tree)) |label_idx|
-            //         if (std.mem.eql(u8, tree.getNodeSource(data[node_idx].lhs), tree.tokenSlice(label_idx))) return unit.interpret(data[node_idx].rhs, parent_scope_idx, observe_values);
-            // }
-            // @panic("Found no break exit!");
-
             const label = if (data[node_idx].lhs == 0) null else tree.tokenSlice(data[node_idx].lhs);
             return if (data[node_idx].rhs == 0)
                 InterpretResult{ .@"break" = label }
             else
                 InterpretResult{ .break_with_value = .{ .label = label, .value = (try unit.interpret(data[node_idx].rhs, parent_scope_idx, observe_values)).getValue() } };
+        },
+        .@"if", .if_simple => {
+            const iff = utils.ifFull(tree, node_idx);
+            if (observe_values) {
+                const ir = try unit.interpret(iff.ast.cond_expr, parent_scope_idx, true);
+                if (ir.getValue().value_data.@"bool") {
+                    return try unit.interpret(iff.ast.then_expr, parent_scope_idx, true);
+                } else {
+                    if (iff.ast.else_expr != 0) {
+                        return try unit.interpret(iff.ast.else_expr, parent_scope_idx, true);
+                    } else return InterpretResult{ .nothing = .{} };
+                }
+            }
+            @panic("bruh");
+        },
+        .equal_equal => {
+            var a = try unit.interpret(data[node_idx].lhs, parent_scope_idx, true);
+            var b = try unit.interpret(data[node_idx].rhs, parent_scope_idx, true);
+            return InterpretResult{ .value = tv.Value{
+                .node_idx = node_idx,
+                .@"type" = try unit.createType(node_idx, .{ .@"bool" = .{} }),
+                .value_data = .{ .@"bool" = a.getValue().eql(b.getValue()) },
+            } };
+            // a.getValue().eql(b.getValue())
+        },
+        .number_literal => {
+            const s = tree.getNodeSource(node_idx);
+            const nl = std.zig.parseNumberLiteral(s);
+            // if (nl == .failure) ;
+            return InterpretResult{ .value = tv.Value{
+                .node_idx = node_idx,
+                .@"type" = try unit.createType(node_idx, .{ .@"comptime_int" = .{} }),
+                .value_data = switch (nl) {
+                    .float => .{ .float = try std.fmt.parseFloat(f64, s) },
+                    .int => if (s[0] == '-') tv.ValueData{ .signed_int = try std.fmt.parseInt(i64, s, 0) } else tv.ValueData{ .unsigned_int = try std.fmt.parseInt(u64, s, 0) },
+                    .big_int => |bii| ppp: {
+                        var bi = try std.math.big.int.Managed.init(unit.allocator);
+                        try bi.setString(@enumToInt(bii), s[if (bii != .decimal) @as(usize, 2) else @as(usize, 0)..]);
+                        break :ppp .{ .@"comptime_int" = bi };
+                    },
+                    .failure => @panic("Failed to parse number literal"),
+                },
+            } };
         },
         else => {
             std.log.err("Unhandled {any}", .{tags[node_idx]});

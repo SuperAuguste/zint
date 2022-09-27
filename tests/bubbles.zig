@@ -3,11 +3,13 @@ b: i16,
 c: (u8),
 d: (i16),
 e: (p: {
-    // const z: type = u8;
-    if (1 == 1) {
-        break :p u32;
+    var joe: type = u69;
+    var mama: type = u420;
+    mama = u3;
+    if (1 == 0) {
+        break :p joe;
     } else {
-        break :p u8;
+        break :p mama;
     }
 }),
 
