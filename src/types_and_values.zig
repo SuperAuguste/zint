@@ -1,6 +1,7 @@
 const std = @import("std");
 const zig = std.zig;
 const Ast = zig.Ast;
+const utils = @import("utils.zig");
 
 pub const TypeInfo = union(enum) {
     pub const Signedness = enum { signed, unsigned };
@@ -17,9 +18,29 @@ pub const TypeInfo = union(enum) {
         signedness: Signedness,
     };
 
+    pub const Pointer = struct {
+        size: Size,
+        is_const: bool,
+        is_volatile: bool,
+        child: Type,
+        is_allowzero: bool,
+
+        sentinel: ?ValueData,
+
+        pub const Size = enum {
+            one,
+            many,
+            slice,
+            c,
+        };
+    };
+
     @"type",
     @"bool",
+
     @"struct": Struct,
+    pointer: Pointer,
+
     int: Int,
     @"comptime_int",
     float: u16,
@@ -47,6 +68,13 @@ pub const ValueData = union(enum) {
 
     @"type": Type,
     @"bool": bool,
+
+    // @"struct": struct {
+
+    // },
+    // one_ptr: *anyopaque,
+    /// TODO: Optimize this with an ArrayList that uses anyopaque slice
+    slice_ptr: std.ArrayListUnmanaged(ValueData),
 
     @"comptime_int": std.math.big.int.Managed,
     unsigned_int: u64,
@@ -96,4 +124,17 @@ pub const Declaration = struct {
     //     .fn_decl
     //     }
     // }
+
+    pub fn isConstant(declaration: Declaration, tree: Ast) bool {
+        return switch (tree.nodes.items(.tag)[declaration.node_idx]) {
+            .global_var_decl,
+            .local_var_decl,
+            .aligned_var_decl,
+            .simple_var_decl,
+            => {
+                return tree.tokenSlice(utils.varDecl(tree, declaration.node_idx).?.ast.mut_token).len == 3;
+            },
+            else => false,
+        };
+    }
 };

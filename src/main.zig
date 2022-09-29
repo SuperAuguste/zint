@@ -14,19 +14,19 @@ pub fn main() !void {
 
     // TODO: Don't pass a local in!
     var unit = try SourceUnit.init(allocator, &package, package.path);
-    _ = try unit.interpret(0, null, false);
+    _ = try unit.interpret(0, null, .{ .observe_values = true, .is_comptime = false });
 
-    for (unit.type_info.items) |ti| {
-        std.log.info("{any}", .{ti});
-    }
+    // for (unit.type_info.items) |ti| {
+    //     std.log.info("{any}", .{ti});
+    // }
 
-    for (unit.fields.items) |field| {
-        // std.log.info("{s}: {s}", args: anytype);
-        std.log.info("{s}: {any}", .{ field.name, unit.formatType(field.@"type") });
-    }
+    // for (unit.fields.items) |field| {
+    //     // std.log.info("{s}: {s}", args: anytype);
+    //     std.log.info("{s}: {any}", .{ field.name, unit.formatType(field.@"type") });
+    // }
 
-    for (unit.declarations.items) |decl| {
-        // std.log.info("{s}: {s}", args: anytype);
-        std.log.info("{s}: {any}; {any}", .{ decl.name, unit.formatType(decl.@"type"), decl.value.value_data });
-    }
+    // for (unit.declarations.items) |decl| {
+    //     // std.log.info("{s}: {s}", args: anytype);
+    //     std.log.info("{s}: {any}; {any}", .{ decl.name, unit.formatType(decl.@"type"), decl.value.value_data });
+    // }
 }

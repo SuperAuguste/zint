@@ -5,15 +5,22 @@ b: i16,
 c: (u8),
 d: (i16),
 e: (p: {
+    const myErrorMessage = "def";
+    @compileLog(myErrorMessage);
+
     var joe: type = u69;
     var mama = u420;
     mama = u3;
-    if (1 == 1) {
+    if (1 == 0) {
         break :p joe;
     } else {
         break :p mama;
     }
 }),
+
+comptime {
+    @compileLog("bruh!!");
+}
 
 pub const Abc = struct {
     def: u8,

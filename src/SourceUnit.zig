@@ -198,14 +198,20 @@ pub fn addDeclaration(unit: *SourceUnit, scope_idx: usize, declaration: tv.Decla
     try unit.declaration_map.put(unit.allocator, .{ .scope_idx = scope_idx, .name = utils.getDeclName(unit.tree, declaration.node_idx).? }, unit.declarations.items.len - 1);
 }
 
+pub const InterpretOptions = struct {
+    /// Whether or not this interpretation cares about values;
+    /// this is always true in type determination / comptime
+    observe_values: bool,
+    /// Whether or not an interpretation zone is comptime
+    is_comptime: bool,
+};
+
 pub const InterpretError = std.mem.Allocator.Error || std.fmt.ParseIntError || std.fmt.ParseFloatError || error{ InvalidCharacter, InvalidBase };
 pub fn interpret(
     unit: *SourceUnit,
     node_idx: Ast.Node.Index,
     parent_scope_idx: ?usize,
-    /// Whether or not this interpretation cares about values;
-    /// this is always true in type determination / comptime
-    observe_values: bool,
+    options: InterpretOptions,
 ) InterpretError!InterpretResult {
     // _ = unit;
     // _ = node;
@@ -214,6 +220,7 @@ pub fn interpret(
     const tree = unit.tree;
     const tags = tree.nodes.items(.tag);
     const data = tree.nodes.items(.data);
+    const main_tokens = tree.nodes.items(.main_token);
 
     std.log.info("{any}", .{tags[node_idx]});
 
@@ -256,7 +263,7 @@ pub fn interpret(
                 };
 
                 if (maybe_container_field) |field_info| {
-                    var init_type = try unit.interpret(field_info.ast.type_expr, scope_idx, true);
+                    var init_type = try unit.interpret(field_info.ast.type_expr, scope_idx, .{ .observe_values = true, .is_comptime = true });
                     const field = tv.Field{
                         .node_idx = member,
                         .name = tree.tokenSlice(field_info.ast.name_token),
@@ -273,7 +280,7 @@ pub fn interpret(
                     try unit.fields.append(unit.allocator, field);
                     try type_info.@"struct".fields.append(unit.allocator, unit.fields.items.len - 1);
                 } else {
-                    _ = try unit.interpret(member, scope_idx, observe_values);
+                    _ = try unit.interpret(member, scope_idx, options);
                     switch (tags[member]) {
                         .global_var_decl,
                         .local_var_decl,
@@ -299,12 +306,12 @@ pub fn interpret(
         .simple_var_decl,
         => {
             const decl = utils.varDecl(tree, node_idx).?;
-            var value = (try unit.interpret(decl.ast.init_node, parent_scope_idx, observe_values)).getValue();
+            var value = (try unit.interpret(decl.ast.init_node, parent_scope_idx, options)).getValue();
             var @"type" = if (decl.ast.type_node == 0) tv.Value{
                 .node_idx = std.math.maxInt(Ast.Node.Index),
                 .@"type" = try unit.createType(node_idx, .{ .@"type" = .{} }),
                 .value_data = .{ .@"type" = value.@"type" },
-            } else (try unit.interpret(decl.ast.type_node, parent_scope_idx, observe_values)).getValue();
+            } else (try unit.interpret(decl.ast.type_node, parent_scope_idx, options)).getValue();
 
             try unit.addDeclaration(parent_scope_idx.?, .{
                 .node_idx = node_idx,
@@ -331,7 +338,7 @@ pub fn interpret(
             const statements = utils.blockStatements(tree, node_idx, &buffer).?;
 
             for (statements) |idx| {
-                const ret = try unit.interpret(idx, scope_idx, observe_values);
+                const ret = try unit.interpret(idx, scope_idx, options);
                 switch (ret) {
                     .@"break" => |lllll| {
                         const maybe_block_label_string = if (unit.scopes.items[scope_idx].getLabel(tree)) |i| tree.tokenSlice(i) else null;
@@ -399,36 +406,36 @@ pub fn interpret(
             @panic("Could not find identifier");
         },
         .grouped_expression => {
-            return try unit.interpret(data[node_idx].lhs, parent_scope_idx, observe_values);
+            return try unit.interpret(data[node_idx].lhs, parent_scope_idx, options);
         },
         .@"break" => {
             const label = if (data[node_idx].lhs == 0) null else tree.tokenSlice(data[node_idx].lhs);
             return if (data[node_idx].rhs == 0)
                 InterpretResult{ .@"break" = label }
             else
-                InterpretResult{ .break_with_value = .{ .label = label, .value = (try unit.interpret(data[node_idx].rhs, parent_scope_idx, observe_values)).getValue() } };
+                InterpretResult{ .break_with_value = .{ .label = label, .value = (try unit.interpret(data[node_idx].rhs, parent_scope_idx, options)).getValue() } };
         },
         .@"if", .if_simple => {
             const iff = utils.ifFull(tree, node_idx);
-            if (observe_values) {
-                const ir = try unit.interpret(iff.ast.cond_expr, parent_scope_idx, true);
+            if (options.observe_values) {
+                const ir = try unit.interpret(iff.ast.cond_expr, parent_scope_idx, options);
                 if (ir.getValue().value_data.@"bool") {
-                    return try unit.interpret(iff.ast.then_expr, parent_scope_idx, true);
+                    return try unit.interpret(iff.ast.then_expr, parent_scope_idx, options);
                 } else {
                     if (iff.ast.else_expr != 0) {
-                        return try unit.interpret(iff.ast.else_expr, parent_scope_idx, true);
+                        return try unit.interpret(iff.ast.else_expr, parent_scope_idx, options);
                     } else return InterpretResult{ .nothing = .{} };
                 }
             } else {
-                _ = try unit.interpret(iff.ast.cond_expr, parent_scope_idx, true);
-                _ = try unit.interpret(iff.ast.then_expr, parent_scope_idx, true);
-                _ = try unit.interpret(iff.ast.else_expr, parent_scope_idx, true);
+                _ = try unit.interpret(iff.ast.cond_expr, parent_scope_idx, options);
+                _ = try unit.interpret(iff.ast.then_expr, parent_scope_idx, options);
+                _ = try unit.interpret(iff.ast.else_expr, parent_scope_idx, options);
             }
             @panic("bruh");
         },
         .equal_equal => {
-            var a = try unit.interpret(data[node_idx].lhs, parent_scope_idx, true);
-            var b = try unit.interpret(data[node_idx].rhs, parent_scope_idx, true);
+            var a = try unit.interpret(data[node_idx].lhs, parent_scope_idx, options);
+            var b = try unit.interpret(data[node_idx].rhs, parent_scope_idx, options);
             return InterpretResult{ .value = tv.Value{
                 .node_idx = node_idx,
                 .@"type" = try unit.createType(node_idx, .{ .@"bool" = .{} }),
@@ -473,13 +480,13 @@ pub fn interpret(
             // TODO: Make this work with non identifiers
             // TODO: Actually consider operators
 
-            if (observe_values) {
+            if (options.observe_values) {
                 const value = tree.getNodeSource(data[node_idx].lhs);
 
                 var psi = unit.parentScopeIterator(parent_scope_idx.?);
                 while (psi.next()) |i| {
                     if (unit.declaration_map.get(.{ .scope_idx = i, .name = value })) |decl_idx| {
-                        unit.declarations.items[decl_idx].value = (try unit.interpret(data[node_idx].rhs, i, observe_values)).getValue();
+                        unit.declarations.items[decl_idx].value = (try unit.interpret(data[node_idx].rhs, i, options)).getValue();
                         // TODO: Register declaration use site
                     }
                 }
@@ -491,8 +498,8 @@ pub fn interpret(
                 var psi = unit.parentScopeIterator(parent_scope_idx.?);
                 while (psi.next()) |i| {
                     if (unit.declaration_map.get(.{ .scope_idx = i, .name = value })) |_| {
-                        _ = try unit.interpret(data[node_idx].lhs, i, observe_values);
-                        _ = try unit.interpret(data[node_idx].rhs, i, observe_values);
+                        _ = try unit.interpret(data[node_idx].lhs, i, options);
+                        _ = try unit.interpret(data[node_idx].rhs, i, options);
                         // TODO: Register declaration use site
                     }
                 }
@@ -515,6 +522,75 @@ pub fn interpret(
         //         };
         //     }
         // },
+        .builtin_call,
+        .builtin_call_comma,
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        => {
+            var buffer: [2]Ast.Node.Index = undefined;
+            const params = utils.builtinCallParams(tree, node_idx, &buffer).?;
+            const call_name = tree.tokenSlice(main_tokens[node_idx]);
+
+            if (std.mem.eql(u8, call_name, "@compileLog")) {
+                pp: for (params) |param| {
+                    const res = (try unit.interpret(param, parent_scope_idx, .{ .observe_values = true, .is_comptime = true })).getValue();
+                    const ti = unit.type_info.items[res.@"type".info_idx];
+                    switch (ti) {
+                        .pointer => |ptr| {
+                            const child = unit.type_info.items[ptr.child.info_idx];
+                            if (ptr.size == .slice and child == .int and child.int.bits == 8 and child.int.signedness == .unsigned) {
+
+                                // TODO: Fix once I optimize slices
+                                std.debug.print("@compileLog output: ", .{});
+                                for (res.value_data.slice_ptr.items) |i| std.debug.print("{c}", .{@truncate(u8, i.unsigned_int)});
+                                std.debug.print("\n", .{});
+
+                                break :pp;
+                            }
+                        },
+                        else => {},
+                    }
+
+                    @panic("compileLog argument type not printable!");
+                }
+
+                return InterpretResult{ .nothing = .{} };
+            }
+
+            std.log.info("Builtin not implemented: {s}", .{call_name});
+            @panic("Builtin not implemented");
+        },
+        .string_literal => {
+            const value = tree.getNodeSource(node_idx)[1 .. tree.getNodeSource(node_idx).len - 1];
+            var val = tv.Value{
+                .node_idx = node_idx,
+                .@"type" = try unit.createType(node_idx, .{
+                    .pointer = .{
+                        .size = .slice,
+                        .is_const = true,
+                        .is_volatile = false,
+                        .child = try unit.createType(0, .{ .int = .{
+                            .bits = 8,
+                            .signedness = .unsigned,
+                        } }),
+                        .is_allowzero = false,
+
+                        .sentinel = .{ .unsigned_int = 0 },
+                    },
+                }),
+                .value_data = .{ .slice_ptr = .{} },
+            };
+
+            for (value) |z| {
+                try val.value_data.slice_ptr.append(unit.allocator, .{ .unsigned_int = z });
+            }
+            try val.value_data.slice_ptr.append(unit.allocator, .{ .unsigned_int = 0 });
+
+            return InterpretResult{ .value = val };
+        },
+        .@"comptime" => {
+            return try unit.interpret(data[node_idx].lhs, parent_scope_idx, .{ .observe_values = true, .is_comptime = true });
+        },
         else => {
             std.log.err("Unhandled {any}", .{tags[node_idx]});
             return InterpretResult{ .nothing = .{} };
