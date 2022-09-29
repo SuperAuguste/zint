@@ -1,3 +1,5 @@
+pub const abc: u32 = 123;
+
 a: u8,
 b: i16,
 c: (u8),
@@ -6,12 +8,28 @@ e: (p: {
     var joe: type = u69;
     var mama = u420;
     mama = u3;
-    if (1 == 0) {
+    if (1 == 1) {
         break :p joe;
     } else {
         break :p mama;
     }
 }),
+
+pub const Abc = struct {
+    def: u8,
+
+    pub const Joe = struct {
+        zzz: k: {
+            break :k u7;
+        },
+    };
+};
+
+// const abc: usize = 123;
+
+// fn addTwo(a: comptime_int, b: comptime_int) comptime_int {
+//     return a + b;
+// }
 
 // comptime {
 //     a: {

@@ -5,16 +5,22 @@ const Ast = zig.Ast;
 pub const TypeInfo = union(enum) {
     pub const Signedness = enum { signed, unsigned };
 
-    @"type",
-    @"bool",
-    @"struct": struct {
-        fields: std.ArrayListUnmanaged(Field),
-        declarations: std.ArrayListUnmanaged(Declaration),
-    },
-    int: struct {
+    pub const Struct = struct {
+        /// Index into unit.fields
+        fields: std.ArrayListUnmanaged(usize) = .{},
+        /// Index into declarations.fields
+        declarations: std.ArrayListUnmanaged(usize) = .{},
+    };
+
+    pub const Int = struct {
         bits: u16,
         signedness: Signedness,
-    },
+    };
+
+    @"type",
+    @"bool",
+    @"struct": Struct,
+    int: Int,
     @"comptime_int",
     float: u16,
     @"comptime_float",
@@ -64,6 +70,8 @@ pub const ValueData = union(enum) {
 
 pub const Field = struct {
     node_idx: Ast.Node.Index,
+    /// Store name so tree doesn't need to be used to access field name
+    name: []const u8,
     container_scope_idx: usize,
     @"type": Type,
     // default_value: ?Value,
@@ -71,6 +79,8 @@ pub const Field = struct {
 
 pub const Declaration = struct {
     node_idx: Ast.Node.Index,
+    /// Store name so tree doesn't need to be used to access declaration name
+    name: []const u8,
     scope_idx: usize,
     @"type": Type,
     value: Value,

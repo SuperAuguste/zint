@@ -16,6 +16,17 @@ pub fn main() !void {
     var unit = try SourceUnit.init(allocator, &package, package.path);
     _ = try unit.interpret(0, null, false);
 
-    for (unit.fields.items) |field|
-        std.log.info("{any}", .{unit.formatType(field.@"type")});
+    for (unit.type_info.items) |ti| {
+        std.log.info("{any}", .{ti});
+    }
+
+    for (unit.fields.items) |field| {
+        // std.log.info("{s}: {s}", args: anytype);
+        std.log.info("{s}: {any}", .{ field.name, unit.formatType(field.@"type") });
+    }
+
+    for (unit.declarations.items) |decl| {
+        // std.log.info("{s}: {s}", args: anytype);
+        std.log.info("{s}: {any}; {any}", .{ decl.name, unit.formatType(decl.@"type"), decl.value.value_data });
+    }
 }
