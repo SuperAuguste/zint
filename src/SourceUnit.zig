@@ -14,6 +14,8 @@ source: [:0]const u8,
 tree: zig.Ast,
 
 type_info: std.ArrayListUnmanaged(tv.TypeInfo) = .{},
+type_info_map: std.HashMapUnmanaged(tv.TypeInfo, usize, TypeInfoContext, std.hash_map.default_max_load_percentage) = .{},
+
 scopes: std.ArrayListUnmanaged(Scope) = .{},
 fields: std.ArrayListUnmanaged(tv.Field) = .{},
 declarations: std.ArrayListUnmanaged(tv.Declaration) = .{},
@@ -23,13 +25,30 @@ declaration_map: std.HashMapUnmanaged(DeclarationLookup, usize, DeclarationMapCo
 declaration_use_sites: std.ArrayListUnmanaged(DeclarationUseSite) = .{},
 field_use_sites: std.ArrayListUnmanaged(FieldUseSite) = .{},
 
+pub const TypeInfoContext = struct {
+    unit: SourceUnit,
+    hasher: *std.hash.Wyhash,
+
+    pub fn hash(self: @This(), s: tv.TypeInfo) u64 {
+        tv.TypeInfo.hash(self, s);
+        return self.hasher.final();
+    }
+    pub fn eql(self: @This(), a: tv.TypeInfo, b: tv.TypeInfo) bool {
+        return tv.TypeInfo.eql(self.unit, a, b);
+    }
+};
+
 pub const DeclarationLookup = struct { scope_idx: usize, name: []const u8 };
 pub const DeclarationMapContext = struct {
     pub fn hash(self: @This(), s: DeclarationLookup) u64 {
         _ = self;
         // TODO: Make this not terribly extremely dangerous
         var scope_idx_buf = std.mem.toBytes(s.scope_idx);
-        return std.hash.Wyhash.hash(0, s.name) ^ std.hash.Wyhash.hash(0, &scope_idx_buf);
+
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(s.name);
+        hasher.update(&scope_idx_buf);
+        return hasher.final();
     }
     pub fn eql(self: @This(), a: DeclarationLookup, b: DeclarationLookup) bool {
         _ = self;
@@ -145,9 +164,18 @@ pub fn deinit(unit: *SourceUnit) void {
 /// Creates type, returns type
 pub fn createType(unit: *SourceUnit, node_idx: Ast.Node.Index, type_info: tv.TypeInfo) std.mem.Allocator.Error!tv.Type {
     // TODO: Figure out dedup
-    try unit.type_info.append(unit.allocator, type_info);
-    const info_idx = unit.type_info.items.len - 1;
-    return tv.Type{ .node_idx = node_idx, .info_idx = info_idx };
+    var hasher = std.hash.Wyhash.init(0);
+    var gpr = try unit.type_info_map.getOrPutContext(unit.allocator, type_info, .{ .unit = unit.*, .hasher = &hasher });
+
+    if (gpr.found_existing) {
+        std.log.info("Dedup successful! {d}", .{gpr.value_ptr.*});
+        return tv.Type{ .node_idx = node_idx, .info_idx = gpr.value_ptr.* };
+    } else {
+        try unit.type_info.append(unit.allocator, type_info);
+        const info_idx = unit.type_info.items.len - 1;
+        gpr.value_ptr.* = info_idx;
+        return tv.Type{ .node_idx = node_idx, .info_idx = info_idx };
+    }
 }
 
 pub fn typeFromTypeValue(unit: *SourceUnit, value: tv.Value) tv.Type {

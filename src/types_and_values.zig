@@ -2,6 +2,7 @@ const std = @import("std");
 const zig = std.zig;
 const Ast = zig.Ast;
 const utils = @import("utils.zig");
+const SourceUnit = @import("SourceUnit.zig");
 
 pub const TypeInfo = union(enum) {
     pub const Signedness = enum { signed, unsigned };
@@ -45,6 +46,55 @@ pub const TypeInfo = union(enum) {
     @"comptime_int",
     float: u16,
     @"comptime_float",
+
+    pub fn eql(source_unit: SourceUnit, a: TypeInfo, b: TypeInfo) bool {
+        if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+        return switch (a) {
+            .@"struct" => false, // Struct declarations can never be equal
+            .pointer => p: {
+                const ap = a.pointer;
+                const bp = b.pointer;
+                break :p ap.size == bp.size and ap.is_const == bp.is_const and ap.is_volatile == bp.is_volatile and eql(
+                    source_unit,
+                    source_unit.type_info.items[ap.child.info_idx],
+                    source_unit.type_info.items[bp.child.info_idx],
+                ) and ap.is_allowzero == bp.is_allowzero and ((ap.sentinel == null and bp.sentinel == null) or ((ap.sentinel != null and bp.sentinel != null) and ap.sentinel.?.eql(bp.sentinel.?)));
+            },
+            .int => a.int.signedness == b.int.signedness and a.int.bits == b.int.bits,
+            .float => a.float == b.float,
+            else => return true,
+        };
+    }
+
+    pub fn hash(context: SourceUnit.TypeInfoContext, ti: TypeInfo) void {
+        context.hasher.update(&[_]u8{@enumToInt(ti)});
+        return switch (ti) {
+            .@"struct" => |s| {
+                context.hasher.update(std.mem.sliceAsBytes(s.fields.items));
+                context.hasher.update(std.mem.sliceAsBytes(s.declarations.items));
+            },
+            .pointer => |p| {
+                // const ap = a.pointer;
+                // const bp = b.pointer;
+                context.hasher.update(&[_]u8{ @enumToInt(p.size), @boolToInt(p.is_const), @boolToInt(p.is_volatile) });
+                TypeInfo.hash(context, context.unit.type_info.items[p.child.info_idx]);
+                context.hasher.update(&[_]u8{@boolToInt(p.is_allowzero)});
+                // TODO: Hash Sentinel
+                // break :p ap.size == bp.size and ap.is_const == bp.is_const and ap.is_volatile == bp.is_volatile and eql(
+                //     source_unit,
+                //     source_unit.type_info.items[ap.child.info_idx],
+                //     source_unit.type_info.items[bp.child.info_idx],
+                // ) and ap.is_allowzero == bp.is_allowzero and ((ap.sentinel == null and bp.sentinel == null) or ((ap.sentinel != null and bp.sentinel != null) and ap.sentinel.?.eql(bp.sentinel.?)));
+            },
+            .int => |i| {
+                // a.int.signedness == b.int.signedness and a.int.bits == b.int.bits;
+                context.hasher.update(&[_]u8{@enumToInt(i.signedness)});
+                context.hasher.update(&std.mem.toBytes(i.bits));
+            },
+            .float => |f| context.hasher.update(&std.mem.toBytes(f)),
+            else => {},
+        };
+    }
 };
 
 pub const Type = struct {
