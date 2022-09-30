@@ -11,7 +11,7 @@ e: (p: {
     var joe: type = u69;
     var mama = u420;
     mama = u3;
-    if (1 == 0) {
+    if (addTwo(2, 5) == 0) {
         break :p joe;
     } else {
         break :p mama;
@@ -32,8 +32,8 @@ pub const Abc = struct {
     };
 };
 
-fn addTwo(a: comptime_int, b: comptime_int) comptime_int {
-    return a + b;
+fn addTwo(extra: comptime_int, cool: comptime_int) comptime_int {
+    return extra + cool;
 }
 
 // comptime {

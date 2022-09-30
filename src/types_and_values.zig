@@ -10,7 +10,7 @@ pub const TypeInfo = union(enum) {
     pub const Struct = struct {
         /// Index into unit.fields
         fields: std.ArrayListUnmanaged(usize) = .{},
-        /// Index into declarations.fields
+        /// Index into unit.declarations
         declarations: std.ArrayListUnmanaged(usize) = .{},
     };
 
@@ -36,6 +36,14 @@ pub const TypeInfo = union(enum) {
         };
     };
 
+    pub const Fn = struct {
+        return_type: ?Type,
+        /// Index into unit.declarations
+        params: std.ArrayListUnmanaged(usize) = .{},
+    };
+
+    /// Hack to get anytype working; only valid on fnparams
+    @"anytype",
     @"type",
     @"bool",
 

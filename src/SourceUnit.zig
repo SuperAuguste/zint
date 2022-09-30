@@ -22,8 +22,8 @@ declarations: std.ArrayListUnmanaged(tv.Declaration) = .{},
 
 declaration_map: std.HashMapUnmanaged(DeclarationLookup, usize, DeclarationMapContext, std.hash_map.default_max_load_percentage) = .{},
 
-declaration_use_sites: std.ArrayListUnmanaged(DeclarationUseSite) = .{},
-field_use_sites: std.ArrayListUnmanaged(FieldUseSite) = .{},
+// declaration_use_sites: std.ArrayListUnmanaged(DeclarationUseSite) = .{},
+// field_use_sites: std.ArrayListUnmanaged(FieldUseSite) = .{},
 
 pub const TypeInfoContext = struct {
     unit: SourceUnit,
@@ -73,7 +73,7 @@ pub const Scope = struct {
     node_idx: Ast.Node.Index,
     parent_scope: usize,
 
-    pub const ScopeKind = enum { container, block };
+    pub const ScopeKind = enum { container, block, function };
     pub fn scopeKind(scope: Scope, tree: Ast) ScopeKind {
         return switch (tree.nodes.items(.tag)[scope.node_idx]) {
             .container_decl,
@@ -656,6 +656,56 @@ pub fn interpret(
         },
         .@"comptime" => {
             return try unit.interpret(data[node_idx].lhs, parent_scope_idx, .{ .observe_values = true, .is_comptime = true });
+        },
+        .fn_proto,
+        .fn_proto_multi,
+        .fn_proto_one,
+        .fn_proto_simple,
+        .fn_decl,
+        => {
+            // var buf: [1]Ast.Node.Index = undefined;
+            // const func = utils.fnProto(tree, node_idx, &buf).?;
+
+            // try unit.scopes.append(unit.allocator, .{
+            //     .node_idx = node_idx,
+            //     .parent_scope = parent_scope_idx orelse std.math.maxInt(usize),
+            // });
+            // const func_scope_idx = unit.scopes.items.len - 1;
+
+            // var fnd: tv.TypeInfo.Fn = .{
+            //     .return_type = null,
+            // };
+
+            // var it = func.iterate(&tree);
+            // while (utils.nextFnParam(&it)) |param| {
+            //     // Add parameter decls
+            //     if (param.name_token) |name_token| {
+            //         // TODO: Think of new method for functions
+            //         if ((try unit.interpret(param.type_expr, func_scope_idx, .{ .observe_values = true, .is_comptime = true })).maybeGetValue()) |value| {
+            //             try unit.addDeclaration(func_scope_idx, value.value_data.@"type");
+            //             try fnd.params.append(unit.allocator, unit.declarations.items.len - 1);
+            //         } else {
+            //             try unit.addDeclaration(parent_scope_idx.?, .{
+            //                 .node_idx = node_idx,
+            //                 .name = tree.tokenSlice(name_token),
+            //                 .scope_idx = func_scope_idx, // orelse std.math.maxInt(usize),
+            //                 .@"value" = undefined,
+            //                 .@"type" = unit.createType(0, .{ .@"anytype" = .{} }),
+            //             });
+            //             try fnd.params.append(unit.allocator, unit.declarations.items.len - 1);
+            //         }
+            //     }
+            // }
+
+            // if ((try unit.interpret(func.ast.return_type, func_scope_idx, .{ .observe_values = true, .is_comptime = true })).maybeGetValue()) |value|
+            //     fnd.return_type = value.value_data.@"type";
+
+            // if (func.fn_tag == .fn_decl) {
+            //     //a
+            // } else {
+            //     return InterpretResult{};
+            // }
+            return InterpretResult{ .nothing = .{} };
         },
         else => {
             std.log.err("Unhandled {any}", .{tags[node_idx]});
