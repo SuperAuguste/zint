@@ -118,12 +118,50 @@ pub const TypeFormatter = struct {
     pub fn format(value: TypeFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        try writer.print("Type with typeInfo {any} @ node {d}", .{ value.unit.type_info.items[value.@"type".info_idx], value.@"type".node_idx });
+        try writer.print("{a]ny} @ node {d}", .{ value.unit.formatTypeInfo(value.unit.type_info.items[value.@"type".info_idx]), value.@"type".node_idx });
     }
 };
 
 pub fn formatType(unit: *SourceUnit, @"type": tv.Type) TypeFormatter {
     return TypeFormatter{ .unit = unit, .@"type" = @"type" };
+}
+
+pub const TypeInfoFormatter = struct {
+    unit: *SourceUnit,
+    ti: tv.TypeInfo,
+
+    pub fn format(value: TypeInfoFormatter, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        return switch (value.ti) {
+            .int => |ii| switch (ii.signedness) {
+                .signed => try writer.print("i{d}", .{ii.bits}),
+                .unsigned => try writer.print("u{d}", .{ii.bits}),
+            }, // TODO
+            .float => |f| try writer.print("f{d}", .{f}),
+            .@"comptime_int" => try writer.writeAll("comptime_int"),
+            .@"comptime_float" => try writer.writeAll("comptime_float"),
+            .@"type" => try writer.writeAll("type"),
+            .@"bool" => try writer.writeAll("bool"),
+            .@"struct" => |s| {
+                try writer.writeAll("struct {");
+                for (s.declarations.items) |di| {
+                    const decl = value.unit.declarations.items[di];
+                    if (decl.isConstant(value.unit.tree)) {
+                        try writer.print("const {s}: , {any}", .{ decl.name, value.unit.formatTypeInfo(value.unit.type_info.items[decl.@"type".info_idx]) });
+                    } else {
+                        try writer.print("var {s}: , {any}", .{ decl.name, value.unit.formatTypeInfo(value.unit.type_info.items[decl.@"type".info_idx]) });
+                    }
+                }
+                try writer.writeAll("}");
+            },
+            else => try writer.print("UnimplementedTypeInfoPrint", .{}),
+        };
+    }
+};
+
+pub fn formatTypeInfo(unit: *SourceUnit, ti: tv.TypeInfo) TypeInfoFormatter {
+    return TypeInfoFormatter{ .unit = unit, .ti = ti };
 }
 
 // pub const Value =
@@ -168,7 +206,7 @@ pub fn createType(unit: *SourceUnit, node_idx: Ast.Node.Index, type_info: tv.Typ
     var gpr = try unit.type_info_map.getOrPutContext(unit.allocator, type_info, .{ .unit = unit.*, .hasher = &hasher });
 
     if (gpr.found_existing) {
-        std.log.info("Dedup successful! {d}", .{gpr.value_ptr.*});
+        std.log.info("Deduplicating type {d}", .{unit.formatTypeInfo(unit.type_info.items[gpr.value_ptr.*])});
         return tv.Type{ .node_idx = node_idx, .info_idx = gpr.value_ptr.* };
     } else {
         try unit.type_info.append(unit.allocator, type_info);

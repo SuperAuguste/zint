@@ -32,11 +32,9 @@ pub const Abc = struct {
     };
 };
 
-// const abc: usize = 123;
-
-// fn addTwo(a: comptime_int, b: comptime_int) comptime_int {
-//     return a + b;
-// }
+fn addTwo(a: comptime_int, b: comptime_int) comptime_int {
+    return a + b;
+}
 
 // comptime {
 //     a: {

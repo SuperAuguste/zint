@@ -99,7 +99,6 @@ pub const TypeInfo = union(enum) {
 
 pub const Type = struct {
     node_idx: Ast.Node.Index,
-    // TODO: Work on type deduplication strategy; memoization issues?
     info_idx: usize,
 };
 
