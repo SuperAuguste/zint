@@ -1,5 +1,6 @@
 const std = @import("std");
 const Package = @import("Package.zig");
+const LiveScope = @import("LiveScope.zig");
 const SourceUnit = @import("SourceUnit.zig");
 
 pub fn main() !void {
@@ -8,13 +9,13 @@ pub fn main() !void {
     var package = Package{
         .name = "root",
         // .path = "C:/Programming/Zig/zig-from-the-website/lib/std/std.zig",
-        .path = "C:/Programming/Zig/zig-interpreter/tests/bubbles.zig",
+        .path = "C:/Programming/Zig/zig-interpreter/tests/completion_test.zig",
         .dependencies = .{},
     };
 
     // TODO: Don't pass a local in!
     var unit = try SourceUnit.init(allocator, &package, package.path);
-    _ = try unit.interpret(0, null, .{ .observe_values = true, .is_comptime = false });
+    _ = try unit.interpret(unit.tree.rootDecls()[1], null, .{ .observe_values = true, .is_comptime = false });
 
     // for (unit.type_info.items) |ti| {
     //     std.log.info("{any}", .{ti});
