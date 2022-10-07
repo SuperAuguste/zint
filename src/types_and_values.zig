@@ -3,15 +3,15 @@ const zig = std.zig;
 const Ast = zig.Ast;
 const utils = @import("utils.zig");
 const SourceUnit = @import("SourceUnit.zig");
+const LiveScope = @import("LiveScope.zig");
 
 pub const TypeInfo = union(enum) {
     pub const Signedness = enum { signed, unsigned };
 
     pub const Struct = struct {
-        /// Index into unit.fields
-        fields: std.ArrayListUnmanaged(usize) = .{},
-        /// Index into unit.declarations
-        declarations: std.ArrayListUnmanaged(usize) = .{},
+        /// Declarations contained within
+        scope: *LiveScope,
+        fields: std.StringHashMapUnmanaged(FieldDefinition) = .{},
     };
 
     pub const Int = struct {
@@ -78,8 +78,10 @@ pub const TypeInfo = union(enum) {
         context.hasher.update(&[_]u8{@enumToInt(ti)});
         return switch (ti) {
             .@"struct" => |s| {
-                context.hasher.update(std.mem.sliceAsBytes(s.fields.items));
-                context.hasher.update(std.mem.sliceAsBytes(s.declarations.items));
+                _ = s;
+                // TODO: Fix
+                // context.hasher.update(std.mem.sliceAsBytes(s.fields.items));
+                // context.hasher.update(std.mem.sliceAsBytes(s.declarations.items));
             },
             .pointer => |p| {
                 // const ap = a.pointer;
@@ -126,9 +128,9 @@ pub const ValueData = union(enum) {
     @"type": Type,
     @"bool": bool,
 
-    // @"struct": struct {
-
-    // },
+    @"struct": struct {
+        fields: std.StringHashMap(Value),
+    },
     // one_ptr: *anyopaque,
     /// TODO: Optimize this with an ArrayList that uses anyopaque slice
     slice_ptr: std.ArrayListUnmanaged(ValueData),
@@ -144,6 +146,7 @@ pub const ValueData = union(enum) {
         // std.meta.activeTag(u: anytype)
         switch (data) {
             .@"bool" => return data.@"bool" == other_data.@"bool",
+            .@"struct" => return false,
             .@"comptime_int" => return data.@"comptime_int".eq(other_data.@"comptime_int"),
             .unsigned_int => return data.unsigned_int == other_data.unsigned_int,
             .signed_int => return data.signed_int == other_data.signed_int,
@@ -153,20 +156,18 @@ pub const ValueData = union(enum) {
     }
 };
 
-pub const Field = struct {
+pub const FieldDefinition = struct {
     node_idx: Ast.Node.Index,
     /// Store name so tree doesn't need to be used to access field name
     name: []const u8,
-    container_scope_idx: usize,
     @"type": Type,
-    // default_value: ?Value,
+    default_value: ?Value,
 };
 
 pub const Declaration = struct {
     node_idx: Ast.Node.Index,
     /// Store name so tree doesn't need to be used to access declaration name
     name: []const u8,
-    scope_idx: usize,
     @"type": Type,
     value: Value,
 
